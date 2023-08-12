@@ -15,18 +15,6 @@ def getTracerouteArgs():
 
     return args
 
-
-def pingCall(args, ttl):
-    command = ["ping", '-i', str(ttl), '-n', args.nqueries, args.destination]
-
-    if args.ipv4:
-        command.append('-4')
-    elif args.ipv6:
-        command.append('-6')
-
-    output = subprocess.run(command, stdout=subprocess.PIPE)
-    return output.stdout.decode("utf-8").split("\r\n")[2:-4]
-
 def outputStatus(output):
     if output.find("TTL expired in transit.") != -1:
         return "expired"
@@ -38,28 +26,48 @@ def outputStatus(output):
 
 
 def getIP(output):
-    pattern = r"Reply from (?P<IP>\S*) *"
-    match = re.compile(pattern).match(output)
+    pattern = r"Reply from (?P<IP>\S*)"
+    match = re.findall(pattern, output)
 
-    if match is None:
+    if not match:
         return None
-    return match.groupdict()["IP"][:-1]
+    return match[0][:-1]
 
 def getLatency(output):
-    pattern = r"*?time=(?P<time>/d+)*"
-    match = re.compile(pattern).match(output)
+    match = re.findall(r"time=(\d)+ms", output)
+    if not match:
+        return match
+    return match[0]+"ms"
 
-    if match is None:
-        return None 
-    return match.groupdict()["time"]
+def pingCall(args, ttl):
+    command = ["ping", '-i', str(ttl), '-n', '1', args.destination]
+    if args.ipv4:
+        command.append('-4')
+    elif args.ipv6:
+        command.append('-6')
 
+    output = subprocess.run(command, stdout=subprocess.PIPE).stdout.decode("utf-8").split("\r\n")[2]
+    if outputStatus(output) == 'timed out':
+        return ('timed out', "Request timed out", ['*']*int(args.nqueries))
+    
+    transitIP = getIP(output)
+
+    command = ["ping", '-n', args.nqueries, transitIP]
+    timeOutput = subprocess.run(command, stdout=subprocess.PIPE).stdout.decode("utf-8").split("\r\n")[2:-6]
+    times = []
+
+    for line in timeOutput:
+        if outputStatus(line) == 'timed out':
+            return ('timed out', transitIP, ['*']*int(args.nqueries))
+        times.append(getLatency(line))
+    
+    return (outputStatus(output), transitIP, times)
 
 def traceroute():
     args = getTracerouteArgs()
     if (args.ipv4 and args.ipv6):
         raise "Could not resolve IP format - too many arguments"
 
-    transitIPs = []
     ttl = 1
     i = 1
 
@@ -70,22 +78,13 @@ def traceroute():
         print(f"{i}.", end="\t")
         i += 1
         callOutput = pingCall(args, ttl)
-        IPs = []
+        ttl += 1
 
-        for packet_output in callOutput:
-            if outputStatus(packet_output) == "timed out":
-                print("Request timed out.", end="\t")
-                break
-            elif outputStatus(packet_output) == "reached":
-                IPs.append(getIP(packet_output))
-                ttl = args.max_ttl+1
-            
-            else:
-                IPs.append(getIP(packet_output))
-        else:
-            ttl += 1
-            for ip in IPs:
-                print(ip, end="\t")
+        print('\t'.join(callOutput[2]), end='\t')
+        print(callOutput[1], end='\t')
+
+        if (callOutput[0] == 'reached'):
+            break
 
 
 if __name__ == "__main__":
