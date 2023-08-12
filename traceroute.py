@@ -5,6 +5,7 @@ import re
 def getTracerouteArgs():
     argParser = argparse.ArgumentParser(description="implements traceroute using ping")
 
+    argParser.add_argument("destination")
     argParser.add_argument("-6", "--ipv6", action="store_true")
     argParser.add_argument("-4", "--ipv4", action="store_true")
 
@@ -15,8 +16,8 @@ def getTracerouteArgs():
     return args
 
 
-def pingCall(args, ttl, dest):
-    command = ["ping", '-i', str(ttl), '-n', args.nqueries, dest]
+def pingCall(args, ttl):
+    command = ["ping", '-i', str(ttl), '-n', args.nqueries, args.destination]
 
     if args.ipv4:
         command.append('-4')
@@ -53,7 +54,7 @@ def getLatency(output):
     return match.groupdict()["time"]
 
 
-def traceroute(dest):
+def traceroute():
     args = getTracerouteArgs()
     if (args.ipv4 and args.ipv6):
         raise "Could not resolve IP format - too many arguments"
@@ -62,13 +63,13 @@ def traceroute(dest):
     ttl = 1
     i = 1
 
-    print(f"Tracing route to {dest}, sending {args.nqueries} packets with max hops {args.max_ttl}")
+    print(f"Tracing route to {args.destination}, sending {args.nqueries} packets with max hops {args.max_ttl}")
     
     while ttl <= args.max_ttl:
         print()
         print(f"{i}.", end="\t")
         i += 1
-        callOutput = pingCall(args, ttl, dest)
+        callOutput = pingCall(args, ttl)
         IPs = []
 
         for packet_output in callOutput:
@@ -88,4 +89,4 @@ def traceroute(dest):
 
 
 if __name__ == "__main__":
-    traceroute("www.google.com")
+    traceroute()
